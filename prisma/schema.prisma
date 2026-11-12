@@ -1,0 +1,199 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+enum StockIssueEventStatus {
+  ISSUED
+  USED
+  UNUSED
+  RETURNED
+  DAMAGED
+  MISSING
+  UNDONE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  role         UserRole @default(STAFF)
+  staffId      String?  @unique
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  staff       Staff?          @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  permissions PagePermission[]
+}
+
+model Staff {
+  id          String   @id @default(cuid())
+  name        String
+  designation String
+  phone       String   @default("")
+  status      String   @default("Active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User?
+}
+
+model PagePermission {
+  id        String   @id @default(cuid())
+  userId    String
+  page      String
+  canView   Boolean  @default(false)
+  canAdd    Boolean  @default(false)
+  canEdit   Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, page])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  targetId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+model RepairJob {
+  id             String   @id @default(cuid())
+  legacyId       Int?     @unique
+  jobNo          String   @unique
+  date           String
+  customer       String
+  phone          String
+  model          String
+  imei           String   @default("")
+  problem        String
+  estimate       Float    @default(0)
+  finalAmount    Float    @default(0)
+  repairStatus   String   @default("OK")
+  deliveryStatus String   @default("Not Delivered")
+  delivery       String   @default("")
+  technician     String   @default("")
+  received       Float    @default(0)
+  parts          String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([date])
+  @@index([customer])
+  @@index([phone])
+  @@index([technician])
+}
+
+model StockPart {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases StockPurchase[]
+  issues    StockIssue[]
+}
+
+model StockDealer {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases StockPurchase[]
+}
+
+model StockPurchase {
+  id          String   @id @default(cuid())
+  legacyId    String?  @unique
+  date        String
+  billNo      String   @default("")
+  dealerId    String?
+  dealerName  String
+  partId      String
+  partName    String
+  qty         Int
+  unitCost    Float
+  serials     Json?
+  notes       String   @default("")
+  consumedJobId String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dealer StockDealer? @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+  part   StockPart    @relation(fields: [partId], references: [id], onDelete: Restrict)
+
+  @@index([date])
+  @@index([partId, date])
+  @@index([dealerName])
+  @@index([consumedJobId])
+}
+
+model StockIssue {
+  id          String   @id @default(cuid())
+  legacyId    String?  @unique
+  date        String
+  jobId       String
+  jobNo       String   @default("")
+  technician  String
+  partId      String
+  partName    String
+  qty         Int
+  unitCost    Float
+  serials     Json?
+  notes       String   @default("")
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  part   StockPart        @relation(fields: [partId], references: [id], onDelete: Restrict)
+  events StockIssueEvent[]
+
+  @@index([date])
+  @@index([jobId])
+  @@index([technician])
+  @@index([partId, date])
+}
+
+model StockIssueEvent {
+  id          String                @id @default(cuid())
+  legacyId    String?               @unique
+  issueId     String
+  date        String
+  status      StockIssueEventStatus
+  qty         Int
+  notes       String                @default("")
+  actorId     String?
+  undoOfId    String?
+  createdAt   DateTime              @default(now())
+
+  issue StockIssue @relation(fields: [issueId], references: [id], onDelete: Restrict)
+
+  @@index([issueId, createdAt])
+  @@index([status, date])
+  @@index([actorId, createdAt])
+  @@index([undoOfId])
+}
