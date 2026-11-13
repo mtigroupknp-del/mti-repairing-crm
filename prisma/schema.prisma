@@ -23,6 +23,11 @@ enum StockIssueEventStatus {
   UNDONE
 }
 
+enum TechnicianSettlementStatus {
+  DRAFT
+  FINALIZED
+}
+
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -38,15 +43,99 @@ model User {
 }
 
 model Staff {
+  id                String   @id @default(cuid())
+  name              String
+  designation       String
+  phone             String   @default("")
+  status            String   @default("Active")
+  defaultPercentage Float    @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user               User?
+  jobTechnicians     JobTechnician[]
+  stockIssues        StockIssue[]
+  monthlySettlements TechnicianMonthlySettlement[]
+}
+
+model JobTechnician {
+  id             String   @id @default(cuid())
+  jobId          String
+  staffId        String
+  assignedAmount Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  job   RepairJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  staff Staff     @relation(fields: [staffId], references: [id], onDelete: Restrict)
+
+  paymentAllocations PaymentAllocation[]
+
+  @@unique([jobId, staffId])
+  @@index([staffId])
+  @@index([jobId])
+}
+
+model Payment {
   id          String   @id @default(cuid())
-  name        String
-  designation String
-  phone       String   @default("")
-  status      String   @default("Active")
+  jobId       String
+  paymentDate String
+  amount      Float
+  method      String   @default("Cash")
+  reference   String   @default("")
+  notes       String   @default("")
+  receivedBy  String   @default("")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user User?
+  job         RepairJob          @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  allocations PaymentAllocation[]
+
+  @@index([jobId, paymentDate])
+  @@index([paymentDate])
+}
+
+model PaymentAllocation {
+  id              String   @id @default(cuid())
+  paymentId       String
+  jobTechnicianId String
+  amount          Float
+  createdAt       DateTime @default(now())
+
+  payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  jobTechnician JobTechnician @relation(fields: [jobTechnicianId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, jobTechnicianId])
+  @@index([jobTechnicianId])
+}
+
+model TechnicianMonthlySettlement {
+  id              String   @id @default(cuid())
+  staffId         String
+  year            Int
+  month           Int
+
+  collectionAmount Float  @default(0)
+  partsCost        Float  @default(0)
+  netProfit        Float  @default(0)
+
+  percentage       Float  @default(0)
+  payableAmount    Float  @default(0)
+
+  status           TechnicianSettlementStatus @default(DRAFT)
+  finalizedAt      DateTime?
+  finalizedById    String?
+  notes            String   @default("")
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Restrict)
+
+  @@unique([staffId, year, month])
+  @@index([year, month])
+  @@index([staffId, year, month])
+  @@index([status])
 }
 
 model PagePermission {
@@ -79,7 +168,7 @@ model AuditLog {
 
 model RepairJob {
   id             String   @id @default(cuid())
-  legacyId       Int?     @unique
+  legacyId       String?  @unique
   jobNo          String   @unique
   date           String
   customer       String
@@ -97,6 +186,9 @@ model RepairJob {
   parts          String   @default("")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  jobTechnicians JobTechnician[]
+  payments       Payment[]
 
   @@index([date])
   @@index([customer])
@@ -126,22 +218,22 @@ model StockDealer {
 }
 
 model StockPurchase {
-  id          String   @id @default(cuid())
-  legacyId    String?  @unique
-  date        String
-  billNo      String   @default("")
-  dealerId    String?
-  dealerName  String
-  partId      String
-  partName    String
-  qty         Int
-  unitCost    Float
-  serials     Json?
-  notes       String   @default("")
+  id            String   @id @default(cuid())
+  legacyId      String?  @unique
+  date          String
+  billNo        String   @default("")
+  dealerId      String?
+  dealerName    String
+  partId        String
+  partName      String
+  qty           Int
+  unitCost      Float
+  serials       Json?
+  notes         String   @default("")
   consumedJobId String?
-  createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   dealer StockDealer? @relation(fields: [dealerId], references: [id], onDelete: SetNull)
   part   StockPart    @relation(fields: [partId], references: [id], onDelete: Restrict)
@@ -159,6 +251,7 @@ model StockIssue {
   jobId       String
   jobNo       String   @default("")
   technician  String
+  staffId     String?
   partId      String
   partName    String
   qty         Int
@@ -170,6 +263,7 @@ model StockIssue {
   updatedAt   DateTime @updatedAt
 
   part   StockPart        @relation(fields: [partId], references: [id], onDelete: Restrict)
+  staff  Staff?           @relation(fields: [staffId], references: [id], onDelete: SetNull)
   events StockIssueEvent[]
 
   @@index([date])
@@ -179,16 +273,16 @@ model StockIssue {
 }
 
 model StockIssueEvent {
-  id          String                @id @default(cuid())
-  legacyId    String?               @unique
-  issueId     String
-  date        String
-  status      StockIssueEventStatus
-  qty         Int
-  notes       String                @default("")
-  actorId     String?
-  undoOfId    String?
-  createdAt   DateTime              @default(now())
+  id        String                @id @default(cuid())
+  legacyId  String?               @unique
+  issueId   String
+  date      String
+  status    StockIssueEventStatus
+  qty       Int
+  notes     String                @default("")
+  actorId   String?
+  undoOfId  String?
+  createdAt DateTime              @default(now())
 
   issue StockIssue @relation(fields: [issueId], references: [id], onDelete: Restrict)
 

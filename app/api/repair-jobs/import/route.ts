@@ -1,6 +1,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/require-admin";
 
 type ImportedJob = {
   id?: number;
@@ -37,13 +38,23 @@ function asAmount(value: unknown): number {
 
 export async function POST(request: NextRequest) {
   try {
-    // Secret key verify karein.
+    // Sirf Admin Login ko permission.
+    const auth = await requireAdmin();
+
+    if (!auth.ok) {
+      return NextResponse.json(
+        { error: auth.message },
+        { status: auth.status }
+      );
+    }
+
+    // Existing import secret bhi verify hoga.
     const expectedKey = process.env.CRM_IMPORT_KEY;
     const suppliedKey = request.headers.get("x-import-key");
 
     if (!expectedKey || !suppliedKey || suppliedKey !== expectedKey) {
       return NextResponse.json(
-        { error: "Import authorization failed. .env secret check karein." },
+        { error: "Import authorization failed." },
         { status: 401 }
       );
     }
@@ -105,7 +116,6 @@ export async function POST(request: NextRequest) {
 
     const jobs = parsed as ImportedJob[];
 
-    // Saare records validate hone ke baad hi database mein insert honge.
     const data = jobs.map((job, index) => {
       if (!job || typeof job !== "object") {
         throw new Error(`Record ${index + 1} invalid hai.`);
@@ -121,6 +131,7 @@ export async function POST(request: NextRequest) {
       }
 
       const estimate = asAmount(job.estimate);
+
       const finalAmount =
         job.finalAmount === undefined || job.finalAmount === null
           ? estimate
@@ -128,10 +139,6 @@ export async function POST(request: NextRequest) {
 
       const received = asAmount(job.received);
 
-      // IMPORTANT:
-      // Browser localStorage ki ID timestamp ho sakti hai,
-      // jaise 1791895779651. Ise PostgreSQL Int legacyId mein
-      // insert nahi karna. Database apni ID khud generate karega.
       return {
         jobNo,
         date: asText(job.date),
@@ -154,7 +161,6 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    // Duplicate Job Numbers ko pehle hi detect karein.
     const jobNumbers = data.map((job) => job.jobNo);
 
     if (new Set(jobNumbers).size !== jobNumbers.length) {
@@ -167,11 +173,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Sirf naye records insert honge.
-    // Existing jobNo ya legacyId conflict hone par record skip hoga.
-    const result = await prisma.repairJob.createMany({
-      data,
-      skipDuplicates: true,
+    // Import aur AuditLog ek transaction mein save honge.
+    const result = await prisma.$transaction(async (tx) => {
+      const importResult = await tx.repairJob.createMany({
+        data,
+        skipDuplicates: true,
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: auth.user.id,
+          action: "REPAIR_JOBS_IMPORTED",
+          details: {
+            receivedRecords: data.length,
+            importedRecords: importResult.count,
+            skippedRecords: data.length - importResult.count,
+            source: "JSON_BACKUP_IMPORT",
+            importedBy: auth.user.username,
+          },
+        },
+      });
+
+      return importResult;
     });
 
     return NextResponse.json({

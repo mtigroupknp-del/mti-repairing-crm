@@ -60,3 +60,15 @@ next-env.d.ts
 /stock-page-copy.txt
 /stock-part-201-400.txt
 /verify-stock-tables.ts
+
+# Temporary working files
+/app/repairing/stock/page-before-backup-button.tsx
+/staff-page-code.txt
+
+# Private database credentials
+/PRISMA KI CONNECTON STRING/
+
+/app/api/staff/[id]/create-login/route
+/app/api/staff/active/route
+
+/app/api/staff/\[id\]/create-login/route

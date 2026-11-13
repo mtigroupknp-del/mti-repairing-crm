@@ -96,9 +96,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (password.length < 12 || password.length > 72) {
+    if (password.length < 8 || password.length > 72) {
       return NextResponse.json(
-        { error: "Password must be 12-72 characters long." },
+        { error: "Password must be 8-72 characters long." },
         { status: 400 }
       );
     }
